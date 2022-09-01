@@ -82,7 +82,16 @@ if ($requestObj === null && json_last_error() !== JSON_ERROR_NONE) {
 $lastTransaction = $getLastTransaction($requestObj);
 
 $invoiceId = checkCbInvoiceID($requestObj->external_id, $gatewayParams['name']);
-checkCbTransID($lastTransaction->txid);
+//checkCbTransID($lastTransaction->txid);
+$existTransaction = WHMCS\Database\Capsule::table('tblaccounts')
+                        ->where('transid', $lastTransaction->txid)
+                        ->first();
+
+if($existTransaction) {
+    logTransaction($gatewayParams['name'], $requestObj, "Transaction {$existTransaction->transid} already exist");
+    http_response_code(202);
+    exit();
+}
 
 $invoice = Invoice::find($invoiceId);
 $userCurrency = getCurrency($invoice->clientId);
