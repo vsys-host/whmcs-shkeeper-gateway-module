@@ -134,7 +134,7 @@ function shkeeper_link($params)
 
         $html = '<div><img src="' . $qrSrc . ' title="QR code" />';
         $html .= "</br>Send <b>$paymentRequest->amount</b> " . strtoupper($crypto) . " to wallet: \n";
-        $html .= "</br><b style='font-size: 13px'>$paymentRequest->wallet</b>";
+        $html .= "</br><b style='font-size: 13px'><div class='well well-sm' style='overflow: auto;'>$paymentRequest->wallet</div></b>";
         if($paymentRequest->recalculate_after) {
             $html .= "</br>Amount valid for " . CarbonInterval::hours($paymentRequest->recalculate_after)->cascade()->forHumans();
         }
