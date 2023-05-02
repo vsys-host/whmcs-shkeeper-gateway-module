@@ -70,6 +70,14 @@ function shkeeper_config()
             'Description' => 'Enter shkeeper api key here',
         ],
 
+        'minimalFiatTransaction' => [
+            'FriendlyName' => 'Minimal transaction amount',
+            'Type' => 'text',
+            'Size' => '3',
+            'Default' => '0.1',
+            'Description' => 'Transactions with less amounts in fiat will be marked as scam and will not be added',
+        ],
+
         'roundCreditAmount' => [
             'FriendlyName' => 'Round credit amount',
             'Type' => 'yesno',
@@ -132,11 +140,24 @@ function shkeeper_link($params)
         $paymentRequest = $shkeeperApi->sendPaymentRequest($crypto);
         $qrSrc = ShkeeperAPI::getQrSrcLink($paymentRequest->wallet, $paymentRequest->amount, $crypto);
 
-        $html = '<div><img src="' . $qrSrc . ' title="QR code" />';
-        $html .= "</br>Send <b>$paymentRequest->amount</b> " . strtoupper($crypto) . " to wallet: \n";
-        $html .= "</br><b style='font-size: 13px'><div class='well well-sm' style='overflow: auto;'>$paymentRequest->wallet</div></b>";
+        $html = "<style>
+.invoice-address {
+  background-color: #fff;
+  overflow: auto;
+}       
+    
+@media screen and (max-width: 767px) {
+  .invoice-address {
+    border: none;
+  }
+}
+</style>";
+        $html .= '<div><img src="' . $qrSrc . ' title="QR code" />';
+        $html .= '<div class="invoice-thumb">';
+        $html .= "<div></br>Send <b>$paymentRequest->amount</b> " . strtoupper($paymentRequest->display_name) . " to wallet: \n</div>";
+        $html .= "</br><b style='font-size: 13px'><div class='well well-sm invoice-address'>$paymentRequest->wallet</div></b>";
         if($paymentRequest->recalculate_after) {
-            $html .= "</br>Amount valid for " . CarbonInterval::hours($paymentRequest->recalculate_after)->cascade()->forHumans();
+            $html .= "<i>Amount valid for " . CarbonInterval::hours($paymentRequest->recalculate_after)->cascade()->forHumans() . "</i>";
         }
         $html .= '</div>';
         return $html;
@@ -148,18 +169,45 @@ function shkeeper_link($params)
 
 function shkeeper_RenderForm(array $cryptos = []) {
     ob_start();
+    echo "<style>                                 
+.invoice-subtitle {
+  text-transform: uppercase;
+  font-size: 14px;
+  font-weight: bold;
+  margin-bottom: 20px;
+}
 
+.invoice-select {
+  width: 100%;
+}
+.invoice-box {
+  display: flex;
+  justify-content: center;
+  gap: 30px;
+}
+
+@media screen and (max-width: 767px) {
+
+  .invoice-select {
+    width: 50%;
+    margin-bottom: 10px;
+  }
+
+}
+</style>";
     echo '<form method="POST" action="" >';
-    echo '<h3>Choose crypto currency</h3>';
-    echo '<div class="col-md-5">';
-    echo '<select id="shkeeper_crypto" name="crypto">';
+    echo '<h3 class="invoice-subtitle">Choose crypto currency</h3>';
+    echo '<div class="invoice-box">';
+    echo '<div>';
+    echo '<select id="shkeeper_crypto" class="form-control invoice-select" name="crypto">';
     foreach ($cryptos as $crypto) {
-        echo '<option value="' . $crypto . '">' . strtoupper($crypto) . '</option>';
+        echo '<option value="' . $crypto->name . '">' . $crypto->display_name . '</option>';
     }
     echo '</select>';
     echo '</div>';
-    echo '<div class="col-md-5">';
-    echo '<input type="submit" name="sendrequest" value="Get payment info" />';
+    echo '<div>';
+    echo '<input type="submit" class="btn btn-success" ame="sendrequest" value="Get address" />';
+    echo '</div>';
     echo '</div>';
     echo '</form>';
 
@@ -186,8 +234,8 @@ class ShkeeperAPI {
         $method = 'GET';
         $endpoint = 'crypto';
         $cryptos = $this->request($endpoint, $method);
-        if($cryptos->status == 'success' && $cryptos->crypto) {
-            return $cryptos->crypto;
+        if($cryptos->status == 'success' && $cryptos->crypto_list) {
+            return $cryptos->crypto_list;
         }
 
         logModuleCall(
@@ -288,7 +336,7 @@ class ShkeeperAPI {
         return $jsonBodyObj;
     }
 
-    public static function getQrSrcLink($wallet, $cryptoAmount, $cryptoCurrency, $qrSize = '250x250') {
+    public static function getQrSrcLink($wallet, $cryptoAmount, $cryptoCurrency, $qrSize = '200x200') {
         $qrUrl = "https://chart.googleapis.com/chart?chs=$qrSize&cht=qr";
         $strForCode = '';
 

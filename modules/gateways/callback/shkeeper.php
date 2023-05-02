@@ -26,7 +26,13 @@ $getHeaders = function () {
     }
     return $headers;
 };
-$getLastTransaction = function ($request) {
+$getTriggeredTransaction = function ($request) {
+    foreach($request->transactions as $transaction) {
+      if($transaction->trigger) {
+        return $transaction;
+      }
+    }
+
     $keys = array_keys($request->transactions);
     return $request->transactions[$keys[count($keys) - 1]];
 };
@@ -79,12 +85,18 @@ if ($requestObj === null && json_last_error() !== JSON_ERROR_NONE) {
     exit;
 }
 
-$lastTransaction = $getLastTransaction($requestObj);
+$triggeredTransaction = $getTriggeredTransaction($requestObj);
+
+//Reject scam transactions
+if($triggeredTransaction->amount_fiat < $gatewayParams['minimalFiatTransaction']) {
+  logTransaction($gatewayParams['name'], $triggeredTransaction, "Scam transaction");
+  http_response_code(202);
+  exit();
+}
 
 $invoiceId = checkCbInvoiceID($requestObj->external_id, $gatewayParams['name']);
-//checkCbTransID($lastTransaction->txid);
 $existTransaction = WHMCS\Database\Capsule::table('tblaccounts')
-                        ->where('transid', $lastTransaction->txid)
+                        ->where('transid', $triggeredTransaction->txid)
                         ->first();
 
 if($existTransaction) {
@@ -95,17 +107,21 @@ if($existTransaction) {
 
 $invoice = Invoice::find($invoiceId);
 $userCurrency = getCurrency($invoice->clientId);
+//For calculate amount without shkeeper fee that was added to invoice amount
+$feeMultiplier = (100 - $requestObj->fee_percent) / 100;
+
 if ($requestObj->paid && $requestObj->status == 'OVERPAID') {
-    $amount = $invoice->getBalanceAttribute() + $convertAmountIfNeed($requestObj->overpaid_fiat, $userCurrency, $requestObj);
+    $amount = $convertAmountIfNeed($triggeredTransaction->amount_fiat * $feeMultiplier, $userCurrency, $requestObj);
+//    $amount = $invoice->getBalanceAttribute() + $convertAmountIfNeed($requestObj->overpaid_fiat, $userCurrency, $requestObj);
     $amount = $gatewayParams['roundCreditAmount'] == 'on' ? floor($amount) : $amount;
 } else {
     //If invoice fully paid set amount to 0, payment will be assumed to be the full balance due for the invoice
-    $amount = $requestObj->paid ? 0 : $convertAmountIfNeed($lastTransaction->amount_fiat, $userCurrency, $requestObj);
+    $amount = $requestObj->paid ? 0 : $convertAmountIfNeed($triggeredTransaction->amount_fiat * $feeMultiplier, $userCurrency, $requestObj);
 }
 
 $isTransactionAdded = addInvoicePayment(
         $invoiceId,
-        $lastTransaction->txid,
+        $triggeredTransaction->txid,
         $amount,
         0.00,
         $gatewayModuleName
@@ -113,6 +129,7 @@ $isTransactionAdded = addInvoicePayment(
 
 if(!$isTransactionAdded) {
     logTransaction($gatewayParams['name'], $requestObj, "Transaction add error");
+    logActivity("[shkeeper] Transaction add faiilure Invoice ID:$invoiceId triggeredTransaction: {$triggeredTransaction->txid} amount: $amount" );
     http_response_code(204);
     exit;
 }
