@@ -4,6 +4,7 @@ use GuzzleHttp\Client;
 use GuzzleHttp\Exception\ClientException;
 use WHMCS\Database\Capsule;
 use Carbon\CarbonInterval;
+use WHMCS\Billing\Payment\Transaction\Information;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -42,9 +43,21 @@ function shkeeper_config()
             function ($table) {
                 $table->integer('user_id');
                 $table->string('crypto');
-                $table->unique('user_id');
+                $table->integer('invoice_id');
+                $table->unique('invoice_id');
             }
         );
+    }
+    else {
+        if (!Capsule::schema()->hasColumn('shkeeper_user_crypto', 'invoice_id')) {
+            Capsule::schema()->table(
+                'shkeeper_user_crypto',
+                function ($table) {
+                    $table->integer('invoice_id');
+                    $table->dropUnique('shkeeper_user_crypto_user_id_unique');
+                }
+            );
+        }
     }
 
     return [
@@ -113,39 +126,62 @@ function shkeeper_link($params)
 
     try {
         $shkeeperApi = new ShkeeperAPI($params);
-        $crypto = isset($_POST['crypto']) ? htmlspecialchars(trim($_POST['crypto'])) : '';
 
-        if($isAutoGenerate()) {
+        if ($isAutoGenerate()) {
             $crypto = Capsule::table('shkeeper_user_crypto')
                 ->where('user_id', $params['clientdetails']['userid'])
+                ->orderBy('invoice_id', 'desc')
                 ->value('crypto');
+        }
+
+        if ($post_crypto=$_POST['crypto']) {
+            $crypto = htmlspecialchars(trim($post_crypto));
+        }
+        else {
+            if ($db_crypto=Capsule::table('shkeeper_user_crypto')->where('invoice_id', $params['invoiceid'])->value('crypto')) {
+                $crypto = $db_crypto;
+            }
         }
 
         if (!$crypto) {
             return shkeeper_RenderForm($shkeeperApi->getCryproList());
         }
 
-        if(!$isAutoGenerate()) {
+        if($post_crypto) {
             Capsule::table('shkeeper_user_crypto')
                 ->updateOrInsert(
                     [
-                        'user_id' => $params['clientdetails']['userid'],
+                        'invoice_id' => $params['invoiceid'],
                     ],
                     [
                         'crypto' => $crypto,
+                        'user_id' => $params['clientdetails']['userid'],
                     ]
                 );
         }
 
         $paymentRequest = $shkeeperApi->sendPaymentRequest($crypto);
+
+        //Chosen crypto unavailable or disabled for some reason
+        if(!$paymentRequest) {
+            $deleted = Capsule::table('shkeeper_user_crypto')
+                ->where('invoice_id', $params['invoiceid'])
+                ->delete();
+            if(!$deleted) {
+                throw new Exception('Exception to prevent cycle loop. Can\'t delete stored crypto.');
+            }
+
+            unset($_POST['crypto']);
+            return shkeeper_link($params);
+        }
         $qrSrc = ShkeeperAPI::getQrSrcLink($paymentRequest->wallet, $paymentRequest->amount, $crypto);
 
         $html = "<style>
 .invoice-address {
   background-color: #fff;
   overflow: auto;
-}       
-    
+}
+
 @media screen and (max-width: 767px) {
   .invoice-address {
     border: none;
@@ -159,7 +195,8 @@ function shkeeper_link($params)
         if($paymentRequest->recalculate_after) {
             $html .= "<i>Amount valid for " . CarbonInterval::hours($paymentRequest->recalculate_after)->cascade()->forHumans() . "</i>";
         }
-        $html .= '</div>';
+        $html .= '</div></div>';
+        $html .= shkeeper_RenderForm($shkeeperApi->getCryproList(), $crypto);
         return $html;
     } catch (Exception $e) {
         logActivity('[' . basename(__FILE__, '.php') . "] Payment gateway error with Invoice ID: {$params['invoiceid']} " . $e->getMessage() );
@@ -167,9 +204,9 @@ function shkeeper_link($params)
     }
 }
 
-function shkeeper_RenderForm(array $cryptos = []) {
+function shkeeper_RenderForm(array $cryptos = [], $selected_crypto=null) {
     ob_start();
-    echo "<style>                                 
+    echo "<style>
 .invoice-subtitle {
   text-transform: uppercase;
   font-size: 14px;
@@ -196,22 +233,61 @@ function shkeeper_RenderForm(array $cryptos = []) {
 }
 </style>";
     echo '<form method="POST" action="" >';
-    echo '<h3 class="invoice-subtitle">Choose crypto currency</h3>';
+    if ($selected_crypto) {
+        echo '<hr /><h3 class="invoice-subtitle">Or select another crypto</h3>';
+    }
+    else {
+        echo '<h3 class="invoice-subtitle">Choose crypto currency</h3>';
+    }
     echo '<div class="invoice-box">';
     echo '<div>';
     echo '<select id="shkeeper_crypto" class="form-control invoice-select" name="crypto">';
     foreach ($cryptos as $crypto) {
-        echo '<option value="' . $crypto->name . '">' . $crypto->display_name . '</option>';
+        if ($crypto->name == $selected_crypto) continue;
+        echo "<option value='{$crypto->name}'>{$crypto->display_name}</option>";
     }
     echo '</select>';
     echo '</div>';
     echo '<div>';
-    echo '<input type="submit" class="btn btn-success" ame="sendrequest" value="Get address" />';
+    echo '<input type="submit" class="btn btn-success" name="sendrequest" value="Get address" />';
     echo '</div>';
     echo '</div>';
     echo '</form>';
 
     return ob_get_clean();
+}
+
+function shkeeper_TransactionInformation(array $params = []): Information {
+    $client = $params['clientdetails']['model'];
+    $tx = $client->transactions()->where('transid', $params['transactionId'])->first();
+    $txid =  $params['transactionId'];
+    $external_id = $tx->invoiceid;
+
+    # this doesn't work
+    # global $_ADMINLANG;
+    # $_ADMINLANG['transactions']['information']['Our wallet addr'] = "Our addr";
+
+    $info = (new ShkeeperAPI($params))->get_tx_info($txid);
+
+    $js = <<<EOF
+<script>
+$('.modal-dialog').css('width', '900px');
+$('.modal-dialog .row div').css('overflow', 'auto');
+</script>
+EOF;
+
+    return (new Information())
+        ->setTransactionId($txid)
+        ->setAmount($info->amount)
+        ->setCurrency($info->crypto)
+        ->setFee($tx->amountin > 0 && $info->amount > $tx->amountin ? $info->amount - $tx->amountin : 0)
+        #->setType($transactionData['type'])
+        #->setAvailableOn(Carbon::parse($transactionData['available_on']))
+        #->setCreated(Carbon::parse($transactionData['created']))
+        #->setDescription($transactionData['description'])
+        #->setStatus($transactionData['status'])
+        ->setAdditionalDatum('Our addr', $info->addr . $js)
+        ;
 }
 
 class ShkeeperAPI {
@@ -262,6 +338,8 @@ class ShkeeperAPI {
 
         if($paymentRequest->status == 'success') {
             return $paymentRequest;
+        } elseif(stripos($paymentRequest->message, 'payment gateway is unavailable') !== false) {
+            return false;
         }
 
         logModuleCall(
@@ -275,6 +353,25 @@ class ShkeeperAPI {
         throw new Exception($paymentRequest->message ?? 'Can not create payment request in Shkeeper server');
     }
 
+    public function get_tx_info($txid) {
+        $res = $this->request("tx-info/$txid");
+
+        if($res->info) {
+            return $res->info;
+        }
+
+        logModuleCall(
+            basename(__FILE__, '.php'),
+            "get_tx_info $txid",
+            [],
+            $res,
+            $res,
+            []);
+
+        throw new Exception($res->info ?? 'Can not get tx info for txid=' . $txid);
+    }
+
+
     public function request($endpoint, $method = 'GET', $data = [], $includeHeaders = false) {
         try {
             switch ($method) {
@@ -286,7 +383,7 @@ class ShkeeperAPI {
                 default:
                     $options = [];
             }
-
+            $options['timeout'] = 30;
             $client = new GuzzleHttp\Client([
                 'base_uri' => $this->apiUrl,
                 'headers' => ['X-Shkeeper-API-Key' => $this->apiKey],

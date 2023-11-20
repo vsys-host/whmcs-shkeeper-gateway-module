@@ -97,10 +97,11 @@ if($triggeredTransaction->amount_fiat < $gatewayParams['minimalFiatTransaction']
 $invoiceId = checkCbInvoiceID($requestObj->external_id, $gatewayParams['name']);
 $existTransaction = WHMCS\Database\Capsule::table('tblaccounts')
                         ->where('transid', $triggeredTransaction->txid)
+                        ->where('invoiceid', $invoiceId)
                         ->first();
 
 if($existTransaction) {
-    logTransaction($gatewayParams['name'], $requestObj, "Transaction {$existTransaction->transid} already exist");
+    logTransaction($gatewayParams['name'], $requestObj, "Transaction {$existTransaction->transid} for Invoice $invoiceId already exist");
     http_response_code(202);
     exit();
 }
@@ -110,13 +111,23 @@ $userCurrency = getCurrency($invoice->clientId);
 //For calculate amount without shkeeper fee that was added to invoice amount
 $feeMultiplier = (100 - $requestObj->fee_percent) / 100;
 
-if ($requestObj->paid && $requestObj->status == 'OVERPAID') {
-    $amount = $convertAmountIfNeed($triggeredTransaction->amount_fiat * $feeMultiplier, $userCurrency, $requestObj);
-//    $amount = $invoice->getBalanceAttribute() + $convertAmountIfNeed($requestObj->overpaid_fiat, $userCurrency, $requestObj);
-    $amount = $gatewayParams['roundCreditAmount'] == 'on' ? floor($amount) : $amount;
+$paidAmount = $convertAmountIfNeed($triggeredTransaction->amount_fiat * $feeMultiplier, $userCurrency, $requestObj);
+
+//PAID
+if($requestObj->paid && $requestObj->status == 'PAID') {
+
+    $invoiceBalance = $invoice->getBalanceAttribute();
+
+    //Case when invoice already paid or paid partially in whmcs with different gateway/credit
+    if($invoiceBalance != $invoice->subtotal ) {
+        $amount = $gatewayParams['roundCreditAmount'] == 'on' ? floor($paidAmount) : $paidAmount;
+    } else {
+        $amount = $invoiceBalance;
+    }
 } else {
-    //If invoice fully paid set amount to 0, payment will be assumed to be the full balance due for the invoice
-    $amount = $requestObj->paid ? 0 : $convertAmountIfNeed($triggeredTransaction->amount_fiat * $feeMultiplier, $userCurrency, $requestObj);
+    //OVERPAID, PARTIAL
+    //WHMCS don't like 0, so used max to prevent it
+    $amount = $gatewayParams['roundCreditAmount'] == 'on' ? max(floor($paidAmount), 1) : $paidAmount;
 }
 
 $isTransactionAdded = addInvoicePayment(
@@ -129,7 +140,7 @@ $isTransactionAdded = addInvoicePayment(
 
 if(!$isTransactionAdded) {
     logTransaction($gatewayParams['name'], $requestObj, "Transaction add error");
-    logActivity("[shkeeper] Transaction add faiilure Invoice ID:$invoiceId triggeredTransaction: {$triggeredTransaction->txid} amount: $amount" );
+    logActivity("[shkeeper]" . print_r("Transaction add error. Amount: {$amount}  Invoice ID:  {$invoiceId}", 1));
     http_response_code(204);
     exit;
 }
