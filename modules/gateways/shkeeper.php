@@ -174,7 +174,7 @@ function shkeeper_link($params)
             unset($_POST['crypto']);
             return shkeeper_link($params);
         }
-        $qrSrc = ShkeeperAPI::getQrSrcLink($paymentRequest->wallet, $paymentRequest->amount, $crypto);
+        $qrImg = ShkeeperAPI::getQrImg($paymentRequest->wallet, $paymentRequest->amount, $crypto);
 
         $html = "<style>
 .invoice-address {
@@ -188,10 +188,10 @@ function shkeeper_link($params)
   }
 }
 </style>";
-        $html .= '<div><img src="' . $qrSrc . ' title="QR code" />';
+        $html .= '<div>' . $qrImg;
         $html .= '<div class="invoice-thumb">';
-        $html .= "<div></br>Send <b>$paymentRequest->amount</b> " . strtoupper($paymentRequest->display_name) . " to wallet: \n</div>";
-        $html .= "</br><b style='font-size: 13px'><div class='well well-sm invoice-address'>$paymentRequest->wallet</div></b>";
+        $html .= "<div><br />Send <b>$paymentRequest->amount</b> " . strtoupper($paymentRequest->display_name) . " to wallet: \n</div>";
+        $html .= "<br /><b style='font-size: 13px'><div class='well well-sm invoice-address'>$paymentRequest->wallet</div></b>";
         if($paymentRequest->recalculate_after) {
             $html .= "<i>Amount valid for " . CarbonInterval::hours($paymentRequest->recalculate_after)->cascade()->forHumans() . "</i>";
         }
@@ -263,10 +263,6 @@ function shkeeper_TransactionInformation(array $params = []): Information {
     $txid =  $params['transactionId'];
     $external_id = $tx->invoiceid;
 
-    # this doesn't work
-    # global $_ADMINLANG;
-    # $_ADMINLANG['transactions']['information']['Our wallet addr'] = "Our addr";
-
     $info = (new ShkeeperAPI($params))->get_tx_info($txid);
 
     $js = <<<EOF
@@ -279,14 +275,9 @@ EOF;
     return (new Information())
         ->setTransactionId($txid)
         ->setAmount($info->amount)
-        ->setCurrency($info->crypto)
         ->setFee($tx->amountin > 0 && $info->amount > $tx->amountin ? $info->amount - $tx->amountin : 0)
-        #->setType($transactionData['type'])
-        #->setAvailableOn(Carbon::parse($transactionData['available_on']))
-        #->setCreated(Carbon::parse($transactionData['created']))
-        #->setDescription($transactionData['description'])
-        #->setStatus($transactionData['status'])
         ->setAdditionalDatum('Our addr', $info->addr . $js)
+        ->setAdditionalDatum('Crypto', $info->crypto)
         ;
 }
 
@@ -433,10 +424,9 @@ class ShkeeperAPI {
         return $jsonBodyObj;
     }
 
-    public static function getQrSrcLink($wallet, $cryptoAmount, $cryptoCurrency, $qrSize = '200x200') {
-        $qrUrl = "https://chart.googleapis.com/chart?chs=$qrSize&cht=qr";
-        $strForCode = '';
+    public static function getQrImg($wallet, $cryptoAmount, $cryptoCurrency, $qrSize = '200x200') {
 
+        $strForCode = '';
         switch (strtolower($cryptoCurrency)) {
             case 'btc':
                 $strForCode .= 'bitcoin:';
@@ -450,6 +440,21 @@ class ShkeeperAPI {
         }
         $strForCode .= $wallet ."?amount=$cryptoAmount";
 
-        return $qrUrl . '&chl=' . urlencode($strForCode) . '&choe=UTF-8';
+        if(class_exists('BaconQrCode\Renderer\ImageRenderer')) {
+            $renderer = new BaconQrCode\Renderer\ImageRenderer(
+                new BaconQrCode\Renderer\RendererStyle\RendererStyle(200),
+                new BaconQrCode\Renderer\Image\SvgImageBackEnd()
+            );
+            $writer = new BaconQrCode\Writer($renderer);
+            $qrImage = $writer->writeString($strForCode);
+
+            #WHMCS < 8.9 compatibility
+        } else {
+            $qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=$qrSize";
+            $qrSrc = $qrUrl . '&data=' . urlencode($strForCode);;
+            $qrImage = "<img src='$qrSrc' title='QR code' />";
+        }
+
+        return $qrImage;
     }
 }

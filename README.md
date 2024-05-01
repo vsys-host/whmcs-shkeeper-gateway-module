@@ -1,7 +1,7 @@
 # whmcs-shkeeper-gateway-module
 Shkeeper payment gateway module for WHMCS
 
-*Module has been tested on WHMCS Version: 8.1.2*
+*Module has been tested on WHMCS Version: 8.10.1*
 
 ## Installation
 1. Unzip folder modules to WHMCS root directory
