@@ -1,0 +1,27 @@
+{
+    "schema": "1.0",
+    "type": "whmcs-gateways",
+    "name": "shkeeper",
+    "license": "GPL-3.0",
+    "category": "payments",
+    "description": {
+        "name": "SHKeeper",
+        "tagline": "Payment Gateway module that allow you to integrate cryptopayment solutions with the WHMCS.",
+        "long": "SHKeeper — is a self-hosted and open-source cryptocurrency payment processor. The unique combination of gateway and merchant. It allows you to accept payments in multiple cryptocurrencies without fees and intermediaries."
+    },
+    "logo": {
+        "filename": "logo.png"
+    },
+    "support": {
+        "homepage": "https:\/\/shkeeper.io\/", 
+        "learn_more": "https:\/\/shkeeper.io\/kb\/launch\/what-is-shkeeper", 
+        "email": "support@shkeeper.io", 
+        "docs_url": "https:\/\/github.com\/vsys-host\/whmcs-shkeeper-gateway-module"
+    },
+    "authors": [
+        {
+            "name": "vsys-host",
+            "homepage": "https:\/\/shkeeper.io\/"
+        }
+    ]
+}
