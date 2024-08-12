@@ -263,7 +263,7 @@ function shkeeper_TransactionInformation(array $params = []): Information {
     $txid =  $params['transactionId'];
     $external_id = $tx->invoiceid;
 
-    $info = (new ShkeeperAPI($params))->get_tx_info($txid);
+    $info = (new ShkeeperAPI($params))->get_tx_info($txid, $external_id);
 
     $js = <<<EOF
 <script>
@@ -344,8 +344,8 @@ class ShkeeperAPI {
         throw new Exception($paymentRequest->message ?? 'Can not create payment request in Shkeeper server');
     }
 
-    public function get_tx_info($txid) {
-        $res = $this->request("tx-info/$txid");
+    public function get_tx_info($txid, $external_id) {
+        $res = $this->request("tx-info/$txid/$external_id");
 
         if($res->info) {
             return $res->info;
@@ -359,7 +359,7 @@ class ShkeeperAPI {
             $res,
             []);
 
-        throw new Exception($res->info ?? 'Can not get tx info for txid=' . $txid);
+        throw new Exception($res->info ?? "Can not get tx info for txid=$txid external_id=$external_id");
     }
 
 
