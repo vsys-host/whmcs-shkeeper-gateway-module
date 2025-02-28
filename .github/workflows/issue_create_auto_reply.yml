@@ -16,7 +16,7 @@ jobs:
             .github/issue_create_auto_reply.md
           sparse-checkout-cone-mode: false
       - name: Add comment
-        run: gh issue comment "$NUMBER" --body-file "$GITHUB_WORKSPACE/.github/issue_create_auto_reply.md"
+        run: gh issue comment "$NUMBER" --body-file "$GITHUB_WORKSPACE/.github/issue_create_auto_reply.md" --repo "$GITHUB_REPOSITORY"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NUMBER: ${{ github.event.issue.number }}
