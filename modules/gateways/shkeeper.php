@@ -37,7 +37,7 @@ function shkeeper_MetaData()
  */
 function shkeeper_config()
 {
-    if(!Capsule::schema()->hasTable('shkeeper_user_crypto')) {
+    if (!Capsule::schema()->hasTable('shkeeper_user_crypto')) {
         Capsule::schema()->create(
             'shkeeper_user_crypto',
             function ($table) {
@@ -47,8 +47,7 @@ function shkeeper_config()
                 $table->unique('invoice_id');
             }
         );
-    }
-    else {
+    } else {
         if (!Capsule::schema()->hasColumn('shkeeper_user_crypto', 'invoice_id')) {
             Capsule::schema()->table(
                 'shkeeper_user_crypto',
@@ -105,9 +104,9 @@ function shkeeper_config()
  *
  * @param array $params Payment Gateway Module Parameters
  *
+ * @return string
  * @see https://developers.whmcs.com/payment-gateways/third-party-gateway/
  *
- * @return string
  */
 function shkeeper_link($params)
 {
@@ -117,7 +116,7 @@ function shkeeper_link($params)
             'publishInvoice'
         ];
         foreach ($autogenerateVars as $var) {
-            if(isset($_REQUEST[$var]) && $_REQUEST[$var] == true) {
+            if (isset($_REQUEST[$var]) && $_REQUEST[$var] == true) {
                 return true;
             }
         }
@@ -134,11 +133,10 @@ function shkeeper_link($params)
                 ->value('crypto');
         }
 
-        if ($post_crypto=$_POST['crypto']) {
+        if ($post_crypto = $_POST['crypto']) {
             $crypto = htmlspecialchars(trim($post_crypto));
-        }
-        else {
-            if ($db_crypto=Capsule::table('shkeeper_user_crypto')->where('invoice_id', $params['invoiceid'])->value('crypto')) {
+        } else {
+            if ($db_crypto = Capsule::table('shkeeper_user_crypto')->where('invoice_id', $params['invoiceid'])->value('crypto')) {
                 $crypto = $db_crypto;
             }
         }
@@ -147,7 +145,7 @@ function shkeeper_link($params)
             return shkeeper_RenderForm($shkeeperApi->getCryproList());
         }
 
-        if($post_crypto) {
+        if ($post_crypto) {
             Capsule::table('shkeeper_user_crypto')
                 ->updateOrInsert(
                     [
@@ -163,11 +161,11 @@ function shkeeper_link($params)
         $paymentRequest = $shkeeperApi->sendPaymentRequest($crypto);
 
         //Chosen crypto unavailable or disabled for some reason
-        if(!$paymentRequest) {
+        if (!$paymentRequest) {
             $deleted = Capsule::table('shkeeper_user_crypto')
                 ->where('invoice_id', $params['invoiceid'])
                 ->delete();
-            if(!$deleted) {
+            if (!$deleted) {
                 throw new Exception('Exception to prevent cycle loop. Can\'t delete stored crypto.');
             }
 
@@ -177,34 +175,67 @@ function shkeeper_link($params)
         $qrImg = ShkeeperAPI::getQrImg($paymentRequest->wallet, $paymentRequest->amount, $crypto);
 
         $html = "<style>
-.invoice-address {
-  background-color: #fff;
-  overflow: auto;
-}
+    .invoice-address-wrapper {
+      background: #f7f7f9;
+      border: 1px solid #e2e2e5;
+      padding: 12px 14px;
+      border-radius: 6px;
+      margin: 8px 0 12px;
+      font-family: monospace;
+      font-size: 14px;
+      word-break: break-all;
+      white-space: normal;
+    }
 
-@media screen and (max-width: 767px) {
-  .invoice-address {
-    border: none;
+    .invoice-address {
+      text-align: left;
+      word-break: break-all;
+    }
+
+    .invoice-copy-container {
+      text-align: right;
+    }
+
+    .shk-copy-btn {
+      align-self: end;
+    }
+    </style>
+
+<script>
+document.addEventListener('click', function(e) {
+  if (e.target.matches('.shk-copy-btn')) {
+    const text = e.target.dataset.copy;
+    navigator.clipboard.writeText(text).then(() => {
+      e.target.innerText = 'Copied!';
+      setTimeout(() => e.target.innerText = 'Copy', 1200);
+    });
   }
-}
-</style>";
+});
+</script>";
+
         $html .= '<div>' . $qrImg;
         $html .= '<div class="invoice-thumb">';
-        $html .= "<div><br />Send <b>$paymentRequest->amount</b> " . strtoupper($paymentRequest->display_name) . " to wallet: \n</div>";
-        $html .= "<br /><b style='font-size: 13px'><div class='well well-sm invoice-address'>$paymentRequest->wallet</div></b>";
-        if($paymentRequest->recalculate_after) {
+        $html .= "<div></br>Send <b>$paymentRequest->amount</b> " . strtoupper($paymentRequest->display_name) . " to wallet: \n</div>";
+
+        $html .= "<div class='invoice-address-wrapper'>
+                <div class='invoice-address'>$paymentRequest->wallet</div>
+              </div>
+              <div class='invoice-copy-container'><button class='btn btn-success shk-copy-btn' data-copy='$paymentRequest->wallet'>Copy</button></div>";
+
+        if ($paymentRequest->recalculate_after) {
             $html .= "<i>Amount valid for " . CarbonInterval::hours($paymentRequest->recalculate_after)->cascade()->forHumans() . "</i>";
         }
         $html .= '</div></div>';
         $html .= shkeeper_RenderForm($shkeeperApi->getCryproList(), $crypto);
         return $html;
     } catch (Exception $e) {
-        logActivity('[' . basename(__FILE__, '.php') . "] Payment gateway error with Invoice ID: {$params['invoiceid']} " . $e->getMessage() );
+        logActivity('[' . basename(__FILE__, '.php') . "] Payment gateway error with Invoice ID: {$params['invoiceid']} " . $e->getMessage());
         return 'Shkeeper connection error. Please try later, or choose another payment method';
     }
 }
 
-function shkeeper_RenderForm(array $cryptos = [], $selected_crypto=null) {
+function shkeeper_RenderForm(array $cryptos = [], $selected_crypto = null)
+{
     ob_start();
     echo "<style>
 .invoice-subtitle {
@@ -235,8 +266,7 @@ function shkeeper_RenderForm(array $cryptos = [], $selected_crypto=null) {
     echo '<form method="POST" action="" >';
     if ($selected_crypto) {
         echo '<hr /><h3 class="invoice-subtitle">Or select another crypto</h3>';
-    }
-    else {
+    } else {
         echo '<h3 class="invoice-subtitle">Choose crypto currency</h3>';
     }
     echo '<div class="invoice-box">';
@@ -257,10 +287,15 @@ function shkeeper_RenderForm(array $cryptos = [], $selected_crypto=null) {
     return ob_get_clean();
 }
 
-function shkeeper_TransactionInformation(array $params = []): Information {
-    $client = $params['clientdetails']['model'];
-    $tx = $client->transactions()->where('transid', $params['transactionId'])->first();
-    $txid =  $params['transactionId'];
+function shkeeper_TransactionInformation(array $params = []): Information
+{
+    if (preg_match('#/admin/billing/transaction/(\d+)/information#', $_SERVER['REQUEST_URI'], $matches)) {
+        $transaction_id = $matches[1];
+    } else {
+        return new Information();
+    }
+    $tx = \WHMCS\Billing\Payment\Transaction::find($transaction_id);
+    $txid = $tx->transid;
     $external_id = $tx->invoiceid;
 
     $info = (new ShkeeperAPI($params))->get_tx_info($txid, $external_id);
@@ -281,23 +316,27 @@ EOF;
         ;
 }
 
-class ShkeeperAPI {
+class ShkeeperAPI
+{
 
     private $apiUrl;
     private $apiKey;
     private $whmcsParams;
 
-    public function __construct($params) {
+    public function __construct($params)
+    {
         $this->initSettings($params);
     }
 
-    private function initSettings($params) {
+    private function initSettings($params)
+    {
         $this->apiUrl = $params['apiUrl'];
         $this->apiKey = $params['apiKey'];
         $this->whmcsParams = $params;
     }
 
-    public function getCryproList() {
+    public function getCryproList()
+    {
         $method = 'GET';
         $endpoint = 'crypto';
         $cryptos = $this->request($endpoint, $method);
@@ -311,12 +350,14 @@ class ShkeeperAPI {
             [],
             $cryptos,
             $cryptos,
-            []);
+            []
+        );
 
         throw new Exception($cryptos->message ?? 'Can not get available crypto from Shkeeper server');
     }
 
-    public function sendPaymentRequest($crypto = 'BTC') {
+    public function sendPaymentRequest($crypto = 'BTC')
+    {
         $paymentRequestData = [
             'external_id'  => $this->whmcsParams['invoiceid'],
             'fiat'         => $this->whmcsParams['currency'],
@@ -327,9 +368,9 @@ class ShkeeperAPI {
         $method = 'POST';
         $paymentRequest = $this->request($endpoint, $method, json_encode($paymentRequestData, JSON_UNESCAPED_SLASHES));
 
-        if($paymentRequest->status == 'success') {
+        if ($paymentRequest->status == 'success') {
             return $paymentRequest;
-        } elseif(stripos($paymentRequest->message, 'payment gateway is unavailable') !== false) {
+        } elseif (stripos($paymentRequest->message, 'payment gateway is unavailable') !== false) {
             return false;
         }
 
@@ -339,31 +380,35 @@ class ShkeeperAPI {
             $paymentRequestData,
             $paymentRequest,
             $paymentRequest,
-            []);
+            []
+        );
 
         throw new Exception($paymentRequest->message ?? 'Can not create payment request in Shkeeper server');
     }
 
-    public function get_tx_info($txid, $external_id) {
+    public function get_tx_info($txid, $external_id)
+    {
         $res = $this->request("tx-info/$txid/$external_id");
 
-        if($res->info) {
+        if ($res->info) {
             return $res->info;
         }
 
         logModuleCall(
             basename(__FILE__, '.php'),
-            "get_tx_info $txid",
+            "get_tx_info $txid $external_id",
             [],
             $res,
             $res,
-            []);
+            []
+        );
 
         throw new Exception($res->info ?? "Can not get tx info for txid=$txid external_id=$external_id");
     }
 
 
-    public function request($endpoint, $method = 'GET', $data = [], $includeHeaders = false) {
+    public function request($endpoint, $method = 'GET', $data = [], $includeHeaders = false)
+    {
         try {
             switch ($method) {
                 case 'POST':
@@ -374,7 +419,7 @@ class ShkeeperAPI {
                 default:
                     $options = [];
             }
-            $options['timeout'] = 30;
+            $options['timeout'] = 40;
             $client = new GuzzleHttp\Client([
                 'base_uri' => $this->apiUrl,
                 'headers' => ['X-Shkeeper-API-Key' => $this->apiKey],
@@ -388,18 +433,20 @@ class ShkeeperAPI {
                 $data,
                 $e,
                 $e->getMessage(),
-                []);
+                []
+            );
             throw new Exception($e);
         }
 
-        if($response->getStatusCode() == 500) {
+        if ($response->getStatusCode() == 500) {
             logModuleCall(
                 basename(__FILE__, '.php'),
                 "$method $endpoint",
                 $data,
                 $response->getBody()->getContents(),
                 $response->getBody()->getContents(),
-                []);
+                []
+            );
             throw new Exception('There is a problem connecting to the Shkeeper server!');
         }
 
@@ -411,10 +458,11 @@ class ShkeeperAPI {
                 $data,
                 $response->getBody()->getContents(),
                 $jsonBodyObj,
-                []);
+                []
+            );
             throw new Exception('Invalid response from Shkeeper server!');
         }
-        if($includeHeaders) {
+        if ($includeHeaders) {
             return [
                 'headers' => $response->getHeaders(),
                 'body'    => $jsonBodyObj,
@@ -424,7 +472,8 @@ class ShkeeperAPI {
         return $jsonBodyObj;
     }
 
-    public static function getQrImg($wallet, $cryptoAmount, $cryptoCurrency, $qrSize = '200x200') {
+    public static function getQrImg($wallet, $cryptoAmount, $cryptoCurrency, $qrSize = '200x200')
+    {
 
         $strForCode = '';
         switch (strtolower($cryptoCurrency)) {
@@ -438,9 +487,9 @@ class ShkeeperAPI {
                 $strForCode .= 'dogecoin:';
                 break;
         }
-        $strForCode .= $wallet ."?amount=$cryptoAmount";
+        $strForCode .= $wallet . "?amount=$cryptoAmount";
 
-        if(class_exists('BaconQrCode\Renderer\ImageRenderer')) {
+        if (class_exists('BaconQrCode\Renderer\ImageRenderer')) {
             $renderer = new BaconQrCode\Renderer\ImageRenderer(
                 new BaconQrCode\Renderer\RendererStyle\RendererStyle(200),
                 new BaconQrCode\Renderer\Image\SvgImageBackEnd()
