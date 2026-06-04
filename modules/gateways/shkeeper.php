@@ -141,6 +141,10 @@ function shkeeper_link($params)
             }
         }
 
+        if (preg_match('~(//|:|http)~', $crypto)) {
+            throw new Exception('Bad crypto provided: ' . $crypto);
+        }
+
         if (!$crypto) {
             return shkeeper_RenderForm($shkeeperApi->getCryproList());
         }
