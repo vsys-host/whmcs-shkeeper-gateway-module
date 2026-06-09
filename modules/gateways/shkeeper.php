@@ -126,6 +126,7 @@ function shkeeper_link($params)
     try {
         $shkeeperApi = new ShkeeperAPI($params);
 
+        $crypto = '';
         if ($isAutoGenerate()) {
             $crypto = Capsule::table('shkeeper_user_crypto')
                 ->where('user_id', $params['clientdetails']['userid'])
@@ -133,16 +134,17 @@ function shkeeper_link($params)
                 ->value('crypto');
         }
 
-        if ($post_crypto = $_POST['crypto']) {
-            $crypto = htmlspecialchars(trim($post_crypto));
+        $post_crypto = isset($_POST['crypto']) && is_string($_POST['crypto']) ? trim($_POST['crypto']) : '';
+        if ($post_crypto !== '') {
+            $crypto = $post_crypto;
         } else {
             if ($db_crypto = Capsule::table('shkeeper_user_crypto')->where('invoice_id', $params['invoiceid'])->value('crypto')) {
                 $crypto = $db_crypto;
             }
         }
 
-        if (preg_match('~(//|:|http)~', $crypto)) {
-            throw new Exception('Bad crypto provided: ' . $crypto);
+        if ($crypto && !preg_match('/^[A-Za-z0-9._-]{1,32}$/', $crypto)) {
+            throw new Exception('Bad crypto provided');
         }
 
         if (!$crypto) {
@@ -177,6 +179,10 @@ function shkeeper_link($params)
             return shkeeper_link($params);
         }
         $qrImg = ShkeeperAPI::getQrImg($paymentRequest->wallet, $paymentRequest->amount, $crypto);
+
+        $walletHtml      = htmlspecialchars((string) $paymentRequest->wallet, ENT_QUOTES, 'UTF-8');
+        $amountHtml      = htmlspecialchars((string) $paymentRequest->amount, ENT_QUOTES, 'UTF-8');
+        $displayNameHtml = htmlspecialchars(strtoupper((string) $paymentRequest->display_name), ENT_QUOTES, 'UTF-8');
 
         $html = "<style>
     .invoice-address-wrapper {
@@ -219,12 +225,12 @@ document.addEventListener('click', function(e) {
 
         $html .= '<div>' . $qrImg;
         $html .= '<div class="invoice-thumb">';
-        $html .= "<div></br>Send <b>$paymentRequest->amount</b> " . strtoupper($paymentRequest->display_name) . " to wallet: \n</div>";
+        $html .= "<div></br>Send <b>$amountHtml</b> " . $displayNameHtml . " to wallet: \n</div>";
 
         $html .= "<div class='invoice-address-wrapper'>
-                <div class='invoice-address'>$paymentRequest->wallet</div>
+                <div class='invoice-address'>$walletHtml</div>
               </div>
-              <div class='invoice-copy-container'><button class='btn btn-success shk-copy-btn' data-copy='$paymentRequest->wallet'>Copy</button></div>";
+              <div class='invoice-copy-container'><button class='btn btn-success shk-copy-btn' data-copy='$walletHtml'>Copy</button></div>";
 
         if ($paymentRequest->recalculate_after) {
             $html .= "<i>Amount valid for " . CarbonInterval::hours($paymentRequest->recalculate_after)->cascade()->forHumans() . "</i>";
@@ -278,7 +284,9 @@ function shkeeper_RenderForm(array $cryptos = [], $selected_crypto = null)
     echo '<select id="shkeeper_crypto" class="form-control invoice-select" name="crypto">';
     foreach ($cryptos as $crypto) {
         if ($crypto->name == $selected_crypto) continue;
-        echo "<option value='{$crypto->name}'>{$crypto->display_name}</option>";
+        $cryptoName        = htmlspecialchars((string) $crypto->name, ENT_QUOTES, 'UTF-8');
+        $cryptoDisplayName = htmlspecialchars((string) $crypto->display_name, ENT_QUOTES, 'UTF-8');
+        echo "<option value='{$cryptoName}'>{$cryptoDisplayName}</option>";
     }
     echo '</select>';
     echo '</div>';
@@ -311,12 +319,15 @@ $('.modal-dialog .row div').css('overflow', 'auto');
 </script>
 EOF;
 
+    $addrHtml   = htmlspecialchars((string) $info->addr, ENT_QUOTES, 'UTF-8');
+    $cryptoHtml = htmlspecialchars((string) $info->crypto, ENT_QUOTES, 'UTF-8');
+
     return (new Information())
         ->setTransactionId($txid)
         ->setAmount($info->amount)
         ->setFee($tx->amountin > 0 && $info->amount > $tx->amountin ? $info->amount - $tx->amountin : 0)
-        ->setAdditionalDatum('Our addr', $info->addr . $js)
-        ->setAdditionalDatum('Crypto', $info->crypto)
+        ->setAdditionalDatum('Our addr', $addrHtml . $js)
+        ->setAdditionalDatum('Crypto', $cryptoHtml)
         ;
 }
 

@@ -54,7 +54,10 @@ $convertAmountIfNeed = function ($amount, $userCurrency, $requestObj) {
 $request = file_get_contents('php://input');
 $requestHeaders = $getHeaders();
 
-if(!isset($requestHeaders['X-Shkeeper-Api-Key']) || $requestHeaders['X-Shkeeper-Api-Key'] !== $gatewayParams['apiKey']) {
+$providedApiKey = $requestHeaders['X-Shkeeper-Api-Key'] ?? '';
+$expectedApiKey = (string) $gatewayParams['apiKey'];
+
+if($expectedApiKey === '' || !hash_equals($expectedApiKey, $providedApiKey)) {
     logModuleCall( $gatewayModuleName, "Callback called wrong api key",
         [
             'request body' => $request,
@@ -74,6 +77,22 @@ if ($requestObj === null && json_last_error() !== JSON_ERROR_NONE) {
     logModuleCall( $gatewayModuleName, "Callback called wrong json",
         [
             'request body' => $request,
+            'request headers' => $requestHeaders,
+            'parsed json'     => $requestObj,
+        ],
+        [],
+        ['status code' => '204'],
+        []
+    );
+    http_response_code(204);
+    exit;
+}
+
+if (!isset($requestObj->external_id, $requestObj->status)
+    || empty($requestObj->transactions) || !is_array($requestObj->transactions)) {
+    logModuleCall( $gatewayModuleName, "Callback called with malformed payload",
+        [
+            'request body'    => $request,
             'request headers' => $requestHeaders,
             'parsed json'     => $requestObj,
         ],
